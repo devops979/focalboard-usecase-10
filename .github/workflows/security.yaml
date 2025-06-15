@@ -1,181 +1,132 @@
-name: validate the infrastructure code with security and linting tools
+name: Terraform Security, Linting, and Validation
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
+
+
 jobs:
-  lint-and-security:
-    name: Lint and Security Checks
+  validate:
+    name: Validate Infrastructure
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       security-events: write
-      actions: read
-      id-token: write
       pull-requests: write
+      id-token: write
+
+    env:
+      TF_VERSION: "1.12.0"
+      AWS_REGION: "us-east-1"
+
     steps:
+      # ======================
+      # SETUP & CREDENTIALS
+      # ======================
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Install TFLint
-        run: |
-          wget https://github.com/terraform-linters/tflint/releases/download/v0.50.2/tflint_linux_amd64.zip
-          unzip tflint_linux_amd64.zip
-          sudo mv tflint /usr/local/bin/
-          tflint --version
-
-      - name: Run TFLint
-        run: tflint --init && tflint -f compact
-
-      - name: Install Checkov
-        run: |
-          pip3 install --upgrade pip
-          pip3 install checkov
-
-      - name: Checkov GitHub Action
-        uses: bridgecrewio/checkov-action@master
-        continue-on-error: true
-        with:
-          output_format: cli,sarif
-          output_file_path: console,results.sarif
-          soft_fail: true
-
-      - name: Install GitHub CLI
-        run: |
-          sudo apt update
-          sudo apt install -y gh
-
-      - name: Upload SARIF file via GitHub API
-        if: success() || failure()
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUBTOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_SHA: ${{ github.sha }}
-        run: |
-           if [ -f "results.sarif" ]; then
-             echo "Uploading SARIF file using GitHub REST API..."
-             SARIF_CONTENT=$(base64 -w 0 results.sarif)
-             PAYLOAD=$(jq -n \
-               --arg commit_sha "$GITHUB_SHA" \
-               --arg ref "refs/pull/${{ github.event.pull_request.number || 'main' }}/merge" \
-               --arg sarif "$SARIF_CONTENT" \
-               --arg tool_name "Checkov" \
-               '{commit_sha: $commit_sha, ref: $ref, sarif: $sarif, tool_name: $tool_name}')
-             curl -s -H "Authorization: token $GITHUB_TOKEN" \
-               -H "Content-Type: application/json" \
-               --data "$PAYLOAD" \
-               "https://api.github.com/repos/${GITHUB_REPOSITORY}/code-scanning/sarifs"
-           else
-             echo "No SARIF file found. Skipping upload."
-           fi
 
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ">= 1.12.0"
+          terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Check Terraform Formatting
+      # ======================
+      # STATIC ANALYSIS PHASE
+      # ======================
+      - name: Terraform Format
         run: terraform fmt -recursive
 
+      - name: Install TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          version: "v0.50.2"
+
+      - name: Run TFLint
+        run: tflint --init && tflint --format compact
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          output_format: sarif
+          output_file_path: results.sarif
+          soft_fail: true
+
+      - name: Upload SARIF Results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+
+      # ======================
+      # TERRAFORM TEST PHASE
+      # ======================
       - name: Terraform Init
         run: terraform init
 
       - name: Terraform Validate
         run: terraform validate -no-color
 
-      - name: Terraform Plan
-        run: terraform plan -out=tfplan
-
-      - name: Convert Plan to JSON
-        run: terraform show -json tfplan > tfplan.json
-
-      - name: Install OPA
+      - name: Run Plan-phase Tests
         run: |
-          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64_static
-          chmod +x opa
-          sudo mv opa /usr/local/bin/
+          # Only run tests marked with command=plan
+          terraform test -filter=tests/demo.tftest.hcl -var="region=${{ env.AWS_REGION }}"
 
-      - name: Validate Terraform with OPA
+      - name: Generate Terraform Plan
+        id: plan
         run: |
+          terraform plan -no-color -out=tfplan
+          terraform show -no-color tfplan > plan.txt
+          echo "PLAN=$(cat plan.txt | base64 -w0)" >> $GITHUB_ENV
+
+      - name: OPA Policy Check
+        run: |
+          terraform show -json tfplan > tfplan.json
           opa eval --format pretty \
             --data policies/security.rego \
             --input tfplan.json \
             "data.terraform.validation.deny"
 
-      - name: Terraform Plan (for PR comment)
-        id: plan
+      # ======================
+      # DOCUMENTATION
+      # ======================
+      - name: Generate Documentation
         run: |
-          terraform plan -no-color > plan.txt 2> debug.log
-          cat plan.txt
-          echo "stdout<<EOF" >> $GITHUB_OUTPUT
-          cat plan.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Inject Terraform Plan into README.md
-        run: |
-          echo -e "\n## Terraform Plan Output\n" >> README.md
-          cat plan.txt >> README.md
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-
-      - name: Install terraform-docs
-        run: |
-          curl -sSLo terraform-docs.tar.gz https://terraform-docs.io/dl/v0.16.0/terraform-docs-v0.16.0-$(uname)-amd64.tar.gz
-          tar -xzf terraform-docs.tar.gz
-          sudo mv terraform-docs /usr/local/bin/
-
-      - name: Generate-directory
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUBTOKEN }}
-        run: |
+          terraform-docs markdown . > README.md
           git config --local user.email "devops979@gmail.com"
-          git config --local user.name "devops979"
-          git fetch origin ${{ github.head_ref }}
-          git checkout ${{ github.head_ref }}
-          git remote set-url origin https://${{ github.actor }}:${GITHUBTOKEN}@github.com/${{ github.repository }}
-          terraform-docs markdown . > README.md.new
-          mv README.md.new README.md
-          if [ -f README.md ]; then
-            git add README.md
-            git diff --cached --quiet && echo "No changes to commit" || git commit -m "docs(terraform): Update README.md via terraform-docs"
-            git push origin HEAD:${{ github.head_ref }}
-          else
-            echo "README.md was not generated."
-          fi 
-      - name: Update Pull Request with Terraform Plan
+          git config --local user.name "GitHub Actions"
+          git add README.md
+          git diff --cached --quiet || git commit -m "docs: Update Terraform documentation"
+          git push
+
+      - name: Comment PR with Plan
+        if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         env:
-          PLAN: "${{ steps.plan.outputs.stdout }}"
+          PLAN: "${{ env.PLAN }}"
         with:
-          github-token: ${{ secrets.GITHUBTOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const plan = process.env.PLAN || "No plan output available.";
-            const output = [
-              "#### Terraform Format and Style ",
-              "#### Terraform Initialization ",
-              "#### Terraform Validation ",
-              "#### Terraform Plan 📄",
-              "",
-              "<details><summary>Show Plan</summary>",
-              "",
-              "```hcl",
-              plan,
-              "```",
-              "",
-              "</details>",
-              "",
-              `*Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`
-            ].join('\n');
+            const output = `
+            ## Terraform Validation Results
+            ### Static Analysis
+            - ✅ TFLint completed
+            - ✅ Checkov security scan completed
+            
+            ### Execution Plan
+            <details>
+            <summary>Show Plan (Base64 encoded)</summary>
+            
+            \`\`\`hcl
+            ${Buffer.from(process.env.PLAN, 'base64').toString('utf8')}
+            \`\`\`
+            </details>
+            `;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,

@@ -1,0 +1,75 @@
+name: Terraform Infra Provisioning using EC2
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Choose the Terraform action'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+          - apply
+          - destroy
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  terraform_apply_destroy:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::211125325699:role/Demo_Access
+          aws-region: us-east-1
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ">= 1.12.0"
+
+      - name: Initialize Terraform
+        run: terraform init
+
+      - name: Format Terraform
+        run: terraform fmt -recursive        
+
+      - name: Validate Terraform
+        run: terraform validate
+
+      - name: Generate Terraform Plan
+        run: terraform plan
+
+      - name: Perform Action
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            ACTION="${{ github.event.inputs.action }}"
+          elif [ "${{ github.event_name }}" == "push" ]; then
+            ACTION="apply"
+          else
+            echo "Unsupported event type: ${{ github.event_name }}"
+            exit 1
+          fi
+
+          echo "Running Terraform action: $ACTION"
+
+          if [ "$ACTION" == "apply" ]; then
+            terraform apply -auto-approve
+          elif [ "$ACTION" == "destroy" ]; then
+            terraform destroy -auto-approve
+          else
+            echo "Invalid action specified: $ACTION"
+            exit 1
+          fi

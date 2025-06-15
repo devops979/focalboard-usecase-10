@@ -2,8 +2,8 @@ name: Terraform Security, Linting, and Validation
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
+
+
 jobs:
   validate:
     name: Validate Infrastructure

@@ -14,8 +14,8 @@ on:
     branches:
       - main
     paths-ignore:
-      - '.github/workflows/**'
-      - 'policies'
+      - '.github/workflows/*'
+      - 'tests'
 
 permissions:
   contents: write

@@ -39,7 +39,18 @@ run "validate_inputs" {
 run "validate_user_data" {
   command = plan
 
-  # Can check user_data content during plan
+  # Add module mock if needed
+  override_module {
+    target = module.focalboard
+    values = {
+      user_data = <<-EOT
+        #!/bin/bash
+        sudo apt update -y
+        sudo docker run -d -p 8000:8000 mattermost/focalboard
+      EOT
+    }
+  }
+
   assert {
     condition     = can(regex("docker run", module.focalboard.user_data))
     error_message = "User data should contain docker run command"

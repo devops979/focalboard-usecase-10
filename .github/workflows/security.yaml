@@ -3,6 +3,7 @@ on:
   pull_request:
     branches:
       - main
+
 jobs:
   lint-and-security:
     name: Lint and Security Checks

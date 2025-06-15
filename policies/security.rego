@@ -2,8 +2,6 @@ package terraform.validation
 
 import rego.v1
 
-default deny := []
-
 # Subnet validation
 deny contains msg if {
   resource := input.planned_values.root_module.resources[_]

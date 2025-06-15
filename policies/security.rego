@@ -2,10 +2,10 @@ package terraform.validation
 
 import rego.v1
 
-default deny = []
+default deny := []
 
-# Collect all denial messages into the 'deny' array
-deny[msg] if {
+# Subnet validation
+deny contains msg if {
   resource := input.planned_values.root_module.resources[_]
   resource.type == "aws_subnet"
   contains(resource.values.cidr_block, "0.0.0.0/0")
@@ -13,28 +13,32 @@ deny[msg] if {
   msg := sprintf("Subnet %s is public and lacks 'Environment' tag", [resource.name])
 }
 
-deny[msg] if {
+# EC2 instance validation
+deny contains msg if {
   resource := input.planned_values.root_module.resources[_]
   resource.type == "aws_instance"
   not resource.values.user_data
   msg := sprintf("EC2 instance %s is missing user_data script", [resource.name])
 }
 
-deny[msg] if {
+# ALB validation
+deny contains msg if {
   resource := input.planned_values.root_module.resources[_]
   resource.type == "aws_lb"
   not startswith(resource.values.name, "web-")
   msg := sprintf("ALB %s does not follow 'web-' naming convention", [resource.name])
 }
 
-deny[msg] if {
+# Target group validation
+deny contains msg if {
   resource := input.planned_values.root_module.resources[_]
   resource.type == "aws_lb_target_group"
   not resource.values.health_check
   msg := sprintf("Target group %s is missing health check config", [resource.name])
 }
 
-deny[msg] if {
+# Security group rule validation
+deny contains msg if {
   resource := input.planned_values.root_module.resources[_]
   resource.type == "aws_security_group_rule"
   resource.values.type == "ingress"

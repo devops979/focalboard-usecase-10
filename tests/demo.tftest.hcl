@@ -39,16 +39,8 @@ run "validate_inputs" {
 run "validate_user_data" {
   command = plan
 
-  # Add module mock if needed
-  override_module {
-    target = module.focalboard
-    values = {
-      user_data = <<-EOT
-        #!/bin/bash
-        sudo apt update -y
-        sudo docker run -d -p 8000:8000 mattermost/focalboard
-      EOT
-    }
+  override_module "focalboard" {
+    source = "./mocks/focalboard"
   }
 
   assert {

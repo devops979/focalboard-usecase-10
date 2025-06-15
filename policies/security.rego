@@ -43,6 +43,7 @@ deny[msg] if {
   resource.type == "aws_security_group_rule"
   resource.values.type == "ingress"
   resource.values.cidr_blocks[_] == "0.0.0.0/0"
-  not (resource.values.from_port == 80 or resource.values.from_port == 443)
+  not resource.values.from_port == 80
+  not resource.values.from_port == 443
   msg := sprintf("Security group rule in %s allows 0.0.0.0/0 on non-HTTP(S) port", [resource.name])
 }

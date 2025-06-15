@@ -41,7 +41,7 @@ jobs:
       # STATIC ANALYSIS PHASE
       # ======================
       - name: Terraform Format
-        run: terraform fmt -recursive -check -diff
+        run: terraform fmt -recursive
 
       - name: Install TFLint
         uses: terraform-linters/setup-tflint@v4

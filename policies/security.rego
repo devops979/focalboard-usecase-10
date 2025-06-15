@@ -4,8 +4,8 @@ import rego.v1
 
 default deny = []
 
-# Deny public subnets without proper tagging
-deny[msg] if {
+# Collect all denial messages into the 'deny' array
+deny[msg] {
   resource := input.planned_values.root_module.resources[_]
   resource.type == "aws_subnet"
   contains(resource.values.cidr_block, "0.0.0.0/0")
@@ -13,32 +13,28 @@ deny[msg] if {
   msg := sprintf("Subnet %s is public and lacks 'Environment' tag", [resource.name])
 }
 
-# Deny EC2 instances without user_data
-deny[msg] if {
+deny[msg] {
   resource := input.planned_values.root_module.resources[_]
   resource.type == "aws_instance"
   not resource.values.user_data
   msg := sprintf("EC2 instance %s is missing user_data script", [resource.name])
 }
 
-# Enforce naming convention for ALB
-deny[msg] if {
+deny[msg] {
   resource := input.planned_values.root_module.resources[_]
   resource.type == "aws_lb"
   not startswith(resource.values.name, "web-")
   msg := sprintf("ALB %s does not follow 'web-' naming convention", [resource.name])
 }
 
-# Enforce health check on ALB target group
-deny[msg] if {
+deny[msg] {
   resource := input.planned_values.root_module.resources[_]
   resource.type == "aws_lb_target_group"
   not resource.values.health_check
   msg := sprintf("Target group %s is missing health check config", [resource.name])
 }
 
-# Disallow 0.0.0.0/0 on ingress rule unless port is 80 or 443
-deny[msg] if {
+deny[msg] {
   resource := input.planned_values.root_module.resources[_]
   resource.type == "aws_security_group_rule"
   resource.values.type == "ingress"

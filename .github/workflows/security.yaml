@@ -4,6 +4,7 @@ on:
     branches:
       - main
 
+
 jobs:
   lint-and-security:
     name: Lint and Security Checks

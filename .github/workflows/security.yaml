@@ -24,6 +24,7 @@ jobs:
           sudo mv tflint /usr/local/bin/
           tflint --version
 
+
       - name: Run TFLint
         run: tflint --init && tflint -f compact
 

@@ -39,7 +39,7 @@ run "validate_inputs" {
 run "validate_user_data" {
   command = plan
 
-  override_module "focalboard" {
+  override_module {
     source = "./mocks/focalboard"
   }
 

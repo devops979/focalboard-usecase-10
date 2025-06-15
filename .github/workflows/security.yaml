@@ -134,17 +134,26 @@ jobs:
           tar -xzf terraform-docs.tar.gz
           sudo mv terraform-docs /usr/local/bin/
 
-      - name: Generate README using terraform-docs
+      - name: Generate-directory
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUBTOKEN }}
         run: |
           git config --local user.email "devops979@gmail.com"
           git config --local user.name "devops979"
-          terraform-docs markdown . > README.md
-          git add README.md
-          git diff --cached --quiet || git commit -m "docs(terraform): Update README via terraform-docs"
-          git push
-
-      - name: Comment PR with Terraform Plan
-        if: github.event_name == 'pull_request'
+          git fetch origin ${{ github.head_ref }}
+          git checkout ${{ github.head_ref }}
+          git remote set-url origin https://${{ github.actor }}:${GITHUBTOKEN}@github.com/${{ github.repository }}
+          terraform-docs markdown . > README.md.new
+          mv README.md.new README.md
+          if [ -f README.md ]; then
+            git add README.md
+            git diff --cached --quiet && echo "No changes to commit" || git commit -m "docs(terraform): Update README.md via terraform-docs"
+            git push origin HEAD:${{ github.head_ref }}
+          else
+            echo "README.md was not generated."
+          fi 
+      - name: Update Pull Request with Terraform Plan
         uses: actions/github-script@v7
         env:
           PLAN: "${{ steps.plan.outputs.stdout }}"
@@ -153,6 +162,9 @@ jobs:
           script: |
             const plan = process.env.PLAN || "No plan output available.";
             const output = [
+              "#### Terraform Format and Style ",
+              "#### Terraform Initialization ",
+              "#### Terraform Validation ",
               "#### Terraform Plan 📄",
               "",
               "<details><summary>Show Plan</summary>",
@@ -160,9 +172,10 @@ jobs:
               "```hcl",
               plan,
               "```",
+              "",
               "</details>",
               "",
-              `*Triggered by: @${{ github.actor }}*`
+              `*Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`
             ].join('\n');
             github.rest.issues.createComment({
               issue_number: context.issue.number,
